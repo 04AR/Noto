@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EPUB Reader (single file)</title>
+  <style>
+    :root {
+      --bg: #0b0c0f;
+      --panel: #14161a;
+      --text: #e6e7e9;
+      --muted: #9aa0a6;
+      --accent: #4c8bf5;
+      --border: #2a2e35;
+    }
+    .light {
+      --bg: #f7f7f9;
+      --panel: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+      transition: color 0.3s ease, background-color 0.3s ease;
+    }
+    header {
+      display: flex; gap: .5rem; align-items: center; justify-content: space-between;
+      padding: .75rem 1rem; background: var(--panel); border-bottom: 1px solid var(--border);
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+    .left, .right { display: flex; align-items: center; gap: .5rem; }
+    button, label[role="button"] {
+      border: 1px solid var(--border); background: transparent; color: var(--text);
+      padding: .4rem .7rem; border-radius: .6rem; cursor: pointer; font-weight: 600;
+      transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+    button:hover, label[role="button"]:hover { border-color: var(--accent); }
+    input[type="file"] { display: none; }
+    .hint { color: var(--muted); font-size: .9rem; }
+
+    .layout { display: grid; grid-template-columns: 280px 1fr; height: 100%; }
+    .sidebar {
+      border-right: 1px solid var(--border); background: var(--panel); overflow: auto;
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+    .sidebar h3 { margin: .75rem 1rem; font-size: 0.95rem; color: var(--muted); }
+    .toc { list-style: none; padding: 0 0 .75rem 0; margin: 0; }
+    .toc li {
+      padding: .35rem 1rem; border-left: 3px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      transition: background-color 0.3s ease, border-left-color 0.3s ease;
+    }
+    .toc li:hover { background: rgba(76,139,245,.08); border-left-color: var(--accent); cursor: pointer; }
+    .toc .active { background: rgba(76,139,245,.14); border-left-color: var(--accent); }
+
+    .reader {
+      position: relative; height: 100%; overflow: hidden; background: var(--bg);
+      display: grid; grid-template-rows: 1fr auto; /* content + controls */
+      transition: background-color 0.3s ease;
+    }
+    #viewer { height: 100%; width: 100%; }
+    .controls {
+      display: flex; justify-content: space-between; align-items: center; gap: .5rem;
+      padding: .5rem; border-top: 1px solid var(--border); background: var(--panel);
+      position: relative; z-index: 2;
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+    .row { display: flex; align-items: center; gap: .5rem; }
+    .sep { width: 1px; height: 28px; background: var(--border); margin: 0 .25rem; }
+    .disabled { opacity: .5; pointer-events: none; }
+    a { color: var(--accent); text-decoration: none; }
+    .drop {
+      position: absolute; inset: 0; border: 2px dashed var(--border); display: none;
+      align-items: center; justify-content: center; background: rgba(0,0,0,.25);
+      color: var(--text); font-weight: 700; z-index: 3;
+    }
+    .drop.show { display: flex; }
+  </style>
+  <!-- JSZip (required by epub.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- epub.js -->
+  <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3/dist/epub.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="left">
+      <strong>EPUB Reader</strong>
+      <span class="hint">• Single file • TOC • scroll/paginate • dark/light • upload</span>
+    </div>
+    <div class="right">
+      <button id="themeToggle" title="Toggle theme">🌗 Theme</button>
+      <span class="sep"></span>
+      <label role="button" for="fileInput" title="Open EPUB">📘 Load Book</label>
+      <input id="fileInput" type="file" accept=".epub,application/epub+zip" />
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <h3>Contents</h3>
+      <ul id="toc" class="toc"></ul>
+    </aside>
+
+    <main class="reader">
+      <div id="viewer"></div>
+      <div class="controls">
+        <div class="row">
+          <button id="prevBtn" title="Previous (paginate mode)">◀ Prev</button>
+          <button id="nextBtn" title="Next (paginate mode)">Next ▶</button>
+        </div>
+        <div class="row">
+          <button id="modeToggle" title="Toggle between vertical scroll and horizontal paginate">↕ / ↔ Mode</button>
+          <span class="hint" id="modeHint">Mode: Paginated (horizontal)</span>
+        </div>
+        <!-- Page number and progression display -->
+        <div class="row">
+          <span id="pageInfo" class="hint"></span>
+        </div>
+      </div>
+      <div id="dropzone" class="drop">Drop .epub file here</div>
+    </main>
+  </div>
+
+  <script>
+    let rendition = null;
+    let book = null;
+    let currentMode = localStorage.getItem('flowMode') || 'paginated';
+    let isLight = localStorage.getItem('theme') === 'light';
+    let currentBookKey = null;
+
+    function applyTheme() {
+      document.body.classList.toggle('light', isLight);
+      if (rendition) {
+        const cs = getComputedStyle(document.body);
+        rendition.themes.default({
+          body: {
+            background: cs.getPropertyValue('--bg').trim(),
+            color: cs.getPropertyValue('--text').trim(),
+            lineHeight: '1.6',
+            padding: '1rem'
+          },
+          a: { color: cs.getPropertyValue('--accent').trim() }
+        });
+        rendition.themes.fontSize('100%');
+      }
+    }
+
+    function setModeHint() {
+      const hint = document.getElementById('modeHint');
+      const prev = document.getElementById('prevBtn');
+      const next = document.getElementById('nextBtn');
+      const isPaginated = currentMode === 'paginated';
+      hint.textContent = `Mode: ${isPaginated ? 'Paginated (horizontal)' : 'Scrolled (vertical)'}`;
+      prev.classList.toggle('disabled', !isPaginated);
+      next.classList.toggle('disabled', !isPaginated);
+    }
+
+    async function loadBookFromArrayBuffer(arrayBuffer, fileNameForKey = '') {
+      try { if (rendition) { rendition.destroy(); } } catch (_) {}
+      try { if (book) { await book.destroy?.(); } } catch (_) {}
+
+      book = ePub(arrayBuffer);
+      currentBookKey = 'lastLocation:' + (fileNameForKey || '');
+
+      const viewer = document.getElementById('viewer');
+      viewer.innerHTML = '';
+      rendition = book.renderTo('viewer', {
+        width: '100%',
+        height: '100%',
+        flow: currentMode,
+        spread: 'auto'
+      });
+
+      applyTheme();
+      setModeHint();
+
+      // Add event listener for page changes to update page info
+      rendition.on('relocated', (location) => {
+        const pageInfo = document.getElementById('pageInfo');
+        if (location.atEnd || location.atStart) {
+          pageInfo.textContent = '';
+          return;
+        }
+
+        // Display page numbers if available
+        if (location.start.page && location.start.pages) {
+          pageInfo.textContent = `Page ${location.start.page} of ${location.start.pages}`;
+        } else {
+          // Fallback to percentage progression if page numbers are not available
+          const totalLocations = book.locations.length;
+          const currentProgress = location.start.location;
+          const percentage = totalLocations > 0 ? Math.round((currentProgress / totalLocations) * 100) : 0;
+          pageInfo.textContent = `Progress: ${percentage}%`;
+        }
+      });
+
+      const last = localStorage.getItem(currentBookKey);
+      if (last) { await rendition.display(last).catch(() => rendition.display()); }
+      else { await rendition.display(); }
+
+      populateTOC();
+      rendition.on('relocated', (loc) => {
+        const cfi = loc.start.cfi;
+        if (currentBookKey && cfi) localStorage.setItem(currentBookKey, cfi);
+        highlightTOCByHref(loc.start?.href);
+      });
+
+      // Generate locations for the progression bar to work
+      book.ready.then(() => book.locations.generate(1000));
+    }
+
+    async function populateTOC() {
+      const tocEl = document.getElementById('toc');
+      tocEl.innerHTML = '';
+      try {
+        const nav = await book.loaded.navigation;
+        const items = (nav?.toc || []);
+        for (const item of items) {
+          const li = document.createElement('li');
+          li.textContent = (item.label || '').trim() || item.href;
+          li.dataset.href = item.href;
+          li.addEventListener('click', () => rendition.display(item.href));
+          tocEl.appendChild(li);
+        }
+      } catch (_) {}
+    }
+
+    function highlightTOCByHref(href) {
+      const tocEl = document.getElementById('toc');
+      [...tocEl.children].forEach(li => li.classList.remove('active'));
+      if (!href) return;
+      const match = [...tocEl.children].find(li => href.includes(li.dataset.href));
+      if (match) match.classList.add('active');
+    }
+
+    document.getElementById('prevBtn').addEventListener('click', () => {
+      if (currentMode === 'paginated' && rendition) rendition.prev();
+    });
+    document.getElementById('nextBtn').addEventListener('click', () => {
+      if (currentMode === 'paginated' && rendition) rendition.next();
+    });
+
+    document.getElementById('modeToggle').addEventListener('click', () => {
+      currentMode = currentMode === 'paginated' ? 'scrolled-doc' : 'paginated';
+      localStorage.setItem('flowMode', currentMode);
+      setModeHint();
+      if (rendition) rendition.flow(currentMode);
+    });
+
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      isLight = !isLight;
+      localStorage.setItem('theme', isLight ? 'light' : 'dark');
+      applyTheme();
+    });
+
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      await loadBookFromArrayBuffer(buf, file.name || '');
+    });
+
+    const drop = document.getElementById('dropzone');
+    const viewer = document.getElementById('viewer');
+    ['dragenter','dragover'].forEach(ev => {
+      viewer.addEventListener(ev, (e) => {
+        e.preventDefault(); drop.classList.add('show');
+      });
+    });
+    ['dragleave','drop'].forEach(ev => {
+      viewer.addEventListener(ev, (e) => {
+        e.preventDefault();
+        if (ev === 'drop') {
+          const file = e.dataTransfer?.files?.[0];
+          if (file && (file.type === 'application/epub+zip' || file.name.toLowerCase().endsWith('.epub'))) {
+            file.arrayBuffer().then(buf => loadBookFromArrayBuffer(buf, file.name || ''));
+          }
+        }
+        drop.classList.remove('show');
+      });
+    });
+
+    document.getElementById('modeHint').textContent =
+      `Mode: ${currentMode === 'paginated' ? 'Paginated (horizontal)' : 'Scrolled (vertical)'}`;
+    document.body.classList.toggle('light', isLight);
+    applyTheme();
+    setModeHint();
+
+    window.addEventListener('keydown', (e) => {
+      if (!rendition) return;
+      if (currentMode === 'paginated') {
+        if (e.key === 'ArrowRight' || e.key === 'PageDown') rendition.next();
+        if (e.key === 'ArrowLeft'  || e.key === 'PageUp')   rendition.prev();
+      }
+    });
+
+    // Add resize event listener to make the content responsive
+    window.addEventListener('resize', () => {
+      if (rendition) {
+        rendition.resize();
+      }
+    });
+  </script>
+</body>
+</html>
