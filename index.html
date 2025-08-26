@@ -6,25 +6,28 @@
   <title>EPUB Reader (single file)</title>
   <style>
     :root {
-      --bg: #0b0c0f;
-      --panel: #14161a;
-      --text: #e6e7e9;
-      --muted: #9aa0a6;
-      --accent: #4c8bf5;
-      --border: #2a2e35;
+      --bg: #111827;
+      --panel: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #3b82f6;
+      --border: #374151;
+      --card-bg: rgba(31, 41, 55, 0.9);
+      --card-border: #4b5563;
     }
     .light {
-      --bg: #f7f7f9;
+      --bg: #f9fafb;
       --panel: #ffffff;
-      --text: #111827;
+      --text: #1f2937;
       --muted: #6b7280;
       --accent: #2563eb;
       --border: #e5e7eb;
+      --card-bg: rgba(255, 255, 255, 0.9);
+      --card-border: #d1d5db;
     }
     * { box-sizing: border-box; }
-    html, body { height: 100%; }
+    html, body { height: 100%; margin: 0; }
     body {
-      margin: 0;
       background: var(--bg);
       color: var(--text);
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
@@ -34,56 +37,64 @@
       transition: color 0.3s ease, background-color 0.3s ease;
     }
     header {
-      display: flex; gap: .5rem; align-items: center; justify-content: space-between;
-      padding: .75rem 1rem; background: var(--panel); border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem;
+      background: var(--panel); border-bottom: 1px solid var(--border);
       transition: background-color 0.3s ease, border-color 0.3s ease;
     }
-    .left, .right { display: flex; align-items: center; gap: .5rem; }
+    .controls-group { display: flex; align-items: center; gap: 0.5rem; }
     button, label[role="button"] {
       border: 1px solid var(--border); background: transparent; color: var(--text);
-      padding: .4rem .7rem; border-radius: .6rem; cursor: pointer; font-weight: 600;
-      transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+      padding: 0.4rem 0.7rem; border-radius: 0.6rem; cursor: pointer; font-weight: 600;
+      transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, opacity 0.3s ease;
     }
     button:hover, label[role="button"]:hover { border-color: var(--accent); }
     input[type="file"] { display: none; }
-    .hint { color: var(--muted); font-size: .9rem; }
+    .hint { color: var(--muted); font-size: 0.9rem; }
 
-    .layout { display: grid; grid-template-columns: 280px 1fr; height: 100%; }
-    .sidebar {
-      border-right: 1px solid var(--border); background: var(--panel); overflow: auto;
-      transition: background-color 0.3s ease, border-color 0.3s ease;
+    .reader-container {
+      position: relative; height: 100%; overflow: hidden;
     }
-    .sidebar h3 { margin: .75rem 1rem; font-size: 0.95rem; color: var(--muted); }
-    .toc { list-style: none; padding: 0 0 .75rem 0; margin: 0; }
+    #viewer {
+      width: 100%; height: 100%;
+    }
+    .nav-btn {
+      position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
+      background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text);
+      padding: 1rem 0.75rem; border-radius: 0.6rem; cursor: pointer; opacity: 0;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      font-size: 1.5rem; line-height: 1; user-select: none;
+    }
+    .reader-container:hover .nav-btn { opacity: 1; }
+    #prevBtn { left: 1rem; }
+    #nextBtn { right: 1rem; }
+    .disabled { opacity: 0 !important; pointer-events: none; }
+
+    .toc-panel {
+      position: absolute; top: 0; left: 0; width: 280px; height: 100%;
+      background: var(--panel); border-right: 1px solid var(--border);
+      transform: translateX(-100%); transition: transform 0.3s ease; z-index: 20;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .toc-panel.show { transform: translateX(0); }
+    .toc-panel h3 { margin: 0.75rem 1rem; font-size: 0.95rem; color: var(--muted); }
+    .toc { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex-grow: 1; }
     .toc li {
-      padding: .35rem 1rem; border-left: 3px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      transition: background-color 0.3s ease, border-left-color 0.3s ease;
+      padding: 0.35rem 1rem; border-left: 3px solid transparent;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      cursor: pointer; transition: background-color 0.2s ease, border-left-color 0.2s ease;
     }
-    .toc li:hover { background: rgba(76,139,245,.08); border-left-color: var(--accent); cursor: pointer; }
+    .toc li:hover { background: rgba(76,139,245,.08); border-left-color: var(--accent); }
     .toc .active { background: rgba(76,139,245,.14); border-left-color: var(--accent); }
 
-    .reader {
-      position: relative; height: 100%; overflow: hidden; background: var(--bg);
-      display: grid; grid-template-rows: 1fr auto; /* content + controls */
-      transition: background-color 0.3s ease;
+    .reader-controls {
+      position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 0.75rem;
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      padding: 0.5rem 1rem; border-radius: 9999px;
+      opacity: 0; transition: opacity 0.3s ease, transform 0.3s ease;
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     }
-    #viewer { height: 100%; width: 100%; }
-    .controls {
-      display: flex; justify-content: space-between; align-items: center; gap: .5rem;
-      padding: .5rem; border-top: 1px solid var(--border); background: var(--panel);
-      position: relative; z-index: 2;
-      transition: background-color 0.3s ease, border-color 0.3s ease;
-    }
-    .row { display: flex; align-items: center; gap: .5rem; }
-    .sep { width: 1px; height: 28px; background: var(--border); margin: 0 .25rem; }
-    .disabled { opacity: .5; pointer-events: none; }
-    a { color: var(--accent); text-decoration: none; }
-    .drop {
-      position: absolute; inset: 0; border: 2px dashed var(--border); display: none;
-      align-items: center; justify-content: center; background: rgba(0,0,0,.25);
-      color: var(--text); font-weight: 700; z-index: 3;
-    }
-    .drop.show { display: flex; }
+    .reader-container:hover .reader-controls { opacity: 1; }
   </style>
   <!-- JSZip (required by epub.js) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -92,43 +103,38 @@
 </head>
 <body>
   <header>
-    <div class="left">
-      <strong>EPUB Reader</strong>
-      <span class="hint">• Single file • TOC • scroll/paginate • dark/light • upload</span>
+    <div class="controls-group">
+      <button id="tocToggle" title="Toggle Contents">☰</button>
+      <span class="hint">EPUB Reader</span>
     </div>
-    <div class="right">
-      <button id="themeToggle" title="Toggle theme">🌗 Theme</button>
-      <span class="sep"></span>
-      <label role="button" for="fileInput" title="Open EPUB">📘 Load Book</label>
+    <div class="controls-group">
+      <span id="bookTitle" class="hint">No book loaded</span>
+    </div>
+    <div class="controls-group">
+      <button id="modeToggle" title="Toggle flow mode">↕ / ↔</button>
+      <button id="themeToggle" title="Toggle theme">🌗</button>
+      <label role="button" for="fileInput" title="Load Book">📘</label>
       <input id="fileInput" type="file" accept=".epub,application/epub+zip" />
     </div>
   </header>
 
-  <div class="layout">
-    <aside class="sidebar">
+  <main class="reader-container">
+    <div id="viewer"></div>
+    <!-- Previous/Next buttons -->
+    <button id="prevBtn" class="nav-btn">◀</button>
+    <button id="nextBtn" class="nav-btn">▶</button>
+    <!-- Table of Contents Panel -->
+    <aside id="tocPanel" class="toc-panel">
       <h3>Contents</h3>
       <ul id="toc" class="toc"></ul>
     </aside>
-
-    <main class="reader">
-      <div id="viewer"></div>
-      <div class="controls">
-        <div class="row">
-          <button id="prevBtn" title="Previous (paginate mode)">◀ Prev</button>
-          <button id="nextBtn" title="Next (paginate mode)">Next ▶</button>
-        </div>
-        <div class="row">
-          <button id="modeToggle" title="Toggle between vertical scroll and horizontal paginate">↕ / ↔ Mode</button>
-          <span class="hint" id="modeHint">Mode: Paginated (horizontal)</span>
-        </div>
-        <!-- Page number and progression display -->
-        <div class="row">
-          <span id="pageInfo" class="hint"></span>
-        </div>
-      </div>
-      <div id="dropzone" class="drop">Drop .epub file here</div>
-    </main>
-  </div>
+    <!-- Floating Reader Controls -->
+    <div id="readerControls" class="reader-controls">
+      <span id="modeHint" class="hint">Paginated</span>
+      <span id="pageInfo" class="hint"></span>
+    </div>
+    <div id="dropzone" class="drop">Drop .epub file here</div>
+  </main>
 
   <script>
     let rendition = null;
@@ -156,12 +162,10 @@
 
     function setModeHint() {
       const hint = document.getElementById('modeHint');
-      const prev = document.getElementById('prevBtn');
-      const next = document.getElementById('nextBtn');
       const isPaginated = currentMode === 'paginated';
-      hint.textContent = `Mode: ${isPaginated ? 'Paginated (horizontal)' : 'Scrolled (vertical)'}`;
-      prev.classList.toggle('disabled', !isPaginated);
-      next.classList.toggle('disabled', !isPaginated);
+      hint.textContent = isPaginated ? 'Paginated' : 'Scrolled';
+      document.getElementById('prevBtn').classList.toggle('disabled', !isPaginated);
+      document.getElementById('nextBtn').classList.toggle('disabled', !isPaginated);
     }
 
     async function loadBookFromArrayBuffer(arrayBuffer, fileNameForKey = '') {
@@ -170,6 +174,7 @@
 
       book = ePub(arrayBuffer);
       currentBookKey = 'lastLocation:' + (fileNameForKey || '');
+      document.getElementById('bookTitle').textContent = book.metadata?.title || 'Untitled';
 
       const viewer = document.getElementById('viewer');
       viewer.innerHTML = '';
@@ -183,7 +188,6 @@
       applyTheme();
       setModeHint();
 
-      // Add event listener for page changes to update page info
       rendition.on('relocated', (location) => {
         const pageInfo = document.getElementById('pageInfo');
         if (location.atEnd || location.atStart) {
@@ -191,11 +195,9 @@
           return;
         }
 
-        // Display page numbers if available
         if (location.start.page && location.start.pages) {
           pageInfo.textContent = `Page ${location.start.page} of ${location.start.pages}`;
         } else {
-          // Fallback to percentage progression if page numbers are not available
           const totalLocations = book.locations.length;
           const currentProgress = location.start.location;
           const percentage = totalLocations > 0 ? Math.round((currentProgress / totalLocations) * 100) : 0;
@@ -214,7 +216,6 @@
         highlightTOCByHref(loc.start?.href);
       });
 
-      // Generate locations for the progression bar to work
       book.ready.then(() => book.locations.generate(1000));
     }
 
@@ -228,7 +229,10 @@
           const li = document.createElement('li');
           li.textContent = (item.label || '').trim() || item.href;
           li.dataset.href = item.href;
-          li.addEventListener('click', () => rendition.display(item.href));
+          li.addEventListener('click', () => {
+            rendition.display(item.href);
+            document.getElementById('tocPanel').classList.remove('show');
+          });
           tocEl.appendChild(li);
         }
       } catch (_) {}
@@ -269,6 +273,10 @@
       await loadBookFromArrayBuffer(buf, file.name || '');
     });
 
+    document.getElementById('tocToggle').addEventListener('click', () => {
+      document.getElementById('tocPanel').classList.toggle('show');
+    });
+
     const drop = document.getElementById('dropzone');
     const viewer = document.getElementById('viewer');
     ['dragenter','dragover'].forEach(ev => {
@@ -289,9 +297,6 @@
       });
     });
 
-    document.getElementById('modeHint').textContent =
-      `Mode: ${currentMode === 'paginated' ? 'Paginated (horizontal)' : 'Scrolled (vertical)'}`;
-    document.body.classList.toggle('light', isLight);
     applyTheme();
     setModeHint();
 
@@ -303,7 +308,6 @@
       }
     });
 
-    // Add resize event listener to make the content responsive
     window.addEventListener('resize', () => {
       if (rendition) {
         rendition.resize();
